@@ -1,1 +1,1 @@
-This repo is not automated and requires manually running [VersionDumper](https://github.com/masagrator/versionDumper) and uploading generated file, so it will be updated pretty randomly. It doesn't include games that don't have updates at all, all titleids end with `800` instead of `000` since `800` is for updates and `000` for base game.
+It doesn't include games that don't have updates at all, all titleids end with `800` instead of `000` since `800` is for updates and `000` for base game.

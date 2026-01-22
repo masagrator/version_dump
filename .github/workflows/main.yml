@@ -1,0 +1,141 @@
+name: Version Monitor
+
+on:
+  push:
+    paths:
+      - 'version_dump.txt'
+
+jobs:
+  check-version-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Download titledb JSON
+        run: |
+          curl -o titledb.json https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/main.json
+          curl -o titledb_regions.json https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/main_regions.json
+
+      - name: Detect and process changes
+        id: process_changes
+        run: |
+          git diff HEAD^ HEAD -- version_dump.txt > changes.txt
+          
+          if [ ! -s changes.txt ]; then
+            echo "No changes detected"
+            exit 0
+          fi
+          
+          # Extract added/modified lines (lines starting with +, but not +++)
+          grep "^+[^+]" changes.txt | sed 's/^+//' > new_lines.txt
+          
+          # Extract removed lines (lines starting with -, but not ---)
+          grep "^-[^-]" changes.txt | sed 's/^-//' > old_lines.txt
+          
+          # Create a file to store messages
+          > messages.txt
+          
+          while IFS='|' read -r col1 col2 col3; do
+            # Trim whitespace
+            col1=$(echo "$col1" | xargs)
+            col3=$(echo "$col3" | xargs)
+            
+            # Replace last 3 digits with 000
+            titleid="${col1:0:-3}000"
+            
+            # Get game name from JSON (first element of array value)
+            game_name=$(jq -r --arg key "$titleid" '.[$key][0] // "Unknown"' titledb.json)
+            
+            # Get regions and convert to flag emojis
+            regions=$(jq -r --arg key "$titleid" '.[$key] // [] | .[]' titledb_regions.json)
+            flags=""
+            if [ ! -z "$regions" ]; then
+              for region in $regions; do
+                # Convert ISO country code to flag emoji
+                # Each letter becomes regional indicator symbol (A=🇦, B=🇧, etc.)
+                first_char=$(echo "${region:0:1}" | tr '[:lower:]' '[:upper:]')
+                second_char=$(echo "${region:1:1}" | tr '[:lower:]' '[:upper:]')
+                
+                # Convert to Unicode regional indicator symbols
+                # A=127462 (🇦), B=127463 (🇧), etc.
+                first_code=$(($(printf '%d' "'$first_char") - 65 + 127462))
+                second_code=$(($(printf '%d' "'$second_char") - 65 + 127462))
+                
+                flag=$(printf "\U$(printf '%x' $first_code)\U$(printf '%x' $second_code)")
+                flags="$flags$flag "
+              done
+              flags=$(echo "$flags" | xargs)  # Trim trailing space
+            fi
+            
+            # Calculate old version (check if line existed before)
+            old_version=0
+            if grep -q "^$col1|" old_lines.txt 2>/dev/null; then
+              old_col3=$(grep "^$col1|" old_lines.txt | cut -d'|' -f3 | xargs)
+              old_version=$((old_col3 / 65536))
+            fi
+            
+            # Calculate new version
+            new_version=$((col3 / 65536))
+            
+            # Only process if there's an actual change
+            if [ "$old_version" -ne "$new_version" ] || [ "$old_version" -eq 0 ]; then
+              message="Detected new game update: \`$game_name\`
+          Titleid: \`$titleid\`
+          Version: \`v$old_version -> v$new_version\`"
+              
+              # Add regions if available
+              if [ ! -z "$flags" ]; then
+                message="$message
+          Regions: $flags"
+              fi
+              
+              echo "$message" >> messages.txt
+              echo "---" >> messages.txt
+            fi
+          done < new_lines.txt
+          
+          if [ -s messages.txt ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Discord notifications
+        if: steps.process_changes.outputs.has_changes == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          while IFS= read -r line; do
+            if [ "$line" = "---" ]; then
+              if [ ! -z "$message" ]; then
+                # Escape quotes and format for JSON
+                escaped_message=$(echo "$message" | jq -Rs .)
+                
+                # Send to Discord
+                curl -H "Content-Type: application/json" \
+                     -d "{\"content\": $escaped_message}" \
+                     "$DISCORD_WEBHOOK_URL"
+                
+                message=""
+                sleep 1
+              fi
+            else
+              if [ -z "$message" ]; then
+                message="$line"
+              else
+                message="$message
+          $line"
+              fi
+            fi
+          done < messages.txt
+          
+          # Send last message if exists
+          if [ ! -z "$message" ]; then
+            escaped_message=$(echo "$message" | jq -Rs .)
+            curl -H "Content-Type: application/json" \
+                 -d "{\"content\": $escaped_message}" \
+                 "$DISCORD_WEBHOOK_URL"
+          fi

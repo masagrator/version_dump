@@ -112,45 +112,71 @@ jobs:
           while IFS= read -r line; do
             if [ "$line" = "---" ]; then
               if [ ! -z "$game_name" ]; then
-                # Build embed JSON
-                embed_json=$(jq -n \
-                  --arg title "🎮 New Game Update Detected" \
-                  --arg game "$game_name" \
-                  --arg tid "$titleid" \
-                  --arg old "$old_version" \
-                  --arg new "$new_version" \
-                  --arg regions "$flags" \
-                  '{
-                    embeds: [{
-                      title: $title,
-                      color: 3447003,
-                      fields: [
-                        {
-                          name: "Game",
-                          value: $game,
-                          inline: false
-                        },
-                        {
-                          name: "Title ID",
-                          value: ("`" + $tid + "`"),
-                          inline: false
-                        },
-                        {
-                          name: "Version",
-                          value: ("`v" + $old + " → v" + $new + "`"),
-                          inline: false
-                        }
-                      ] + (if $regions != "" then [{
-                        name: "Regions",
-                        value: $regions,
-                        inline: false
-                      }] else [] end)
-                    }]
-                  }')
+                # Build base embed JSON
+                if [ ! -z "$flags" ]; then
+                  # With regions
+                  cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                },
+                {
+                  "name": "Regions",
+                  "value": "$flags",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+                else
+                  # Without regions
+                  cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+                fi
                 
                 # Send to Discord
                 curl -H "Content-Type: application/json" \
-                     -d "$embed_json" \
+                     -d @embed.json \
                      "$DISCORD_WEBHOOK_URL"
                 
                 # Reset variables
@@ -185,42 +211,66 @@ jobs:
           
           # Send last message if exists
           if [ ! -z "$game_name" ]; then
-            embed_json=$(jq -n \
-              --arg title "🎮 New Game Update Detected" \
-              --arg game "$game_name" \
-              --arg tid "$titleid" \
-              --arg old "$old_version" \
-              --arg new "$new_version" \
-              --arg regions "$flags" \
-              '{
-                embeds: [{
-                  title: $title,
-                  color: 3447003,
-                  fields: [
-                    {
-                      name: "Game",
-                      value: $game,
-                      inline: false
-                    },
-                    {
-                      name: "Title ID",
-                      value: ("`" + $tid + "`"),
-                      inline: false
-                    },
-                    {
-                      name: "Version",
-                      value: ("`v" + $old + " → v" + $new + "`"),
-                      inline: false
-                    }
-                  ] + (if $regions != "" then [{
-                    name: "Regions",
-                    value: $regions,
-                    inline: false
-                  }] else [] end)
-                }]
-              }')
+            if [ ! -z "$flags" ]; then
+              cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                },
+                {
+                  "name": "Regions",
+                  "value": "$flags",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+            else
+              cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+            fi
             
             curl -H "Content-Type: application/json" \
-                 -d "$embed_json" \
+                 -d @embed.json \
                  "$DISCORD_WEBHOOK_URL"
           fi

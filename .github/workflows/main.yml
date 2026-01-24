@@ -82,17 +82,12 @@ jobs:
             
             # Only process if there's an actual change
             if [ "$old_version" -ne "$new_version" ] || [ "$old_version" -eq 0 ]; then
-              message="Detected new game update: \`$game_name\`
-          Titleid: \`$titleid\`
-          Version: \`v$old_version -> v$new_version\`"
-              
-              # Add regions if available
-              if [ ! -z "$flags" ]; then
-                message="$message
-          Regions: $flags"
-              fi
-              
-              echo "$message" >> messages.txt
+              # Store data in a structured format for embed creation
+              echo "GAME_NAME:$game_name" >> messages.txt
+              echo "TITLEID:$titleid" >> messages.txt
+              echo "OLD_VERSION:$old_version" >> messages.txt
+              echo "NEW_VERSION:$new_version" >> messages.txt
+              echo "FLAGS:$flags" >> messages.txt
               echo "---" >> messages.txt
             fi
           done < new_lines.txt
@@ -108,34 +103,124 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          game_name=""
+          titleid=""
+          old_version=""
+          new_version=""
+          flags=""
+          
           while IFS= read -r line; do
             if [ "$line" = "---" ]; then
-              if [ ! -z "$message" ]; then
-                # Escape quotes and format for JSON
-                escaped_message=$(echo "$message" | jq -Rs .)
+              if [ ! -z "$game_name" ]; then
+                # Build embed JSON
+                embed_json=$(jq -n \
+                  --arg title "🎮 New Game Update Detected" \
+                  --arg game "$game_name" \
+                  --arg tid "$titleid" \
+                  --arg old "$old_version" \
+                  --arg new "$new_version" \
+                  --arg regions "$flags" \
+                  '{
+                    embeds: [{
+                      title: $title,
+                      color: 3447003,
+                      fields: [
+                        {
+                          name: "Game",
+                          value: $game,
+                          inline: false
+                        },
+                        {
+                          name: "Title ID",
+                          value: ("`" + $tid + "`"),
+                          inline: false
+                        },
+                        {
+                          name: "Version",
+                          value: ("`v" + $old + " → v" + $new + "`"),
+                          inline: false
+                        }
+                      ] + (if $regions != "" then [{
+                        name: "Regions",
+                        value: $regions,
+                        inline: false
+                      }] else [] end)
+                    }]
+                  }')
                 
                 # Send to Discord
                 curl -H "Content-Type: application/json" \
-                     -d "{\"content\": $escaped_message}" \
+                     -d "$embed_json" \
                      "$DISCORD_WEBHOOK_URL"
                 
-                message=""
+                # Reset variables
+                game_name=""
+                titleid=""
+                old_version=""
+                new_version=""
+                flags=""
                 sleep 1
               fi
             else
-              if [ -z "$message" ]; then
-                message="$line"
-              else
-                message="$message
-          $line"
-              fi
+              # Parse the structured data
+              case "$line" in
+                GAME_NAME:*)
+                  game_name="${line#GAME_NAME:}"
+                  ;;
+                TITLEID:*)
+                  titleid="${line#TITLEID:}"
+                  ;;
+                OLD_VERSION:*)
+                  old_version="${line#OLD_VERSION:}"
+                  ;;
+                NEW_VERSION:*)
+                  new_version="${line#NEW_VERSION:}"
+                  ;;
+                FLAGS:*)
+                  flags="${line#FLAGS:}"
+                  ;;
+              esac
             fi
           done < messages.txt
           
           # Send last message if exists
-          if [ ! -z "$message" ]; then
-            escaped_message=$(echo "$message" | jq -Rs .)
+          if [ ! -z "$game_name" ]; then
+            embed_json=$(jq -n \
+              --arg title "🎮 New Game Update Detected" \
+              --arg game "$game_name" \
+              --arg tid "$titleid" \
+              --arg old "$old_version" \
+              --arg new "$new_version" \
+              --arg regions "$flags" \
+              '{
+                embeds: [{
+                  title: $title,
+                  color: 3447003,
+                  fields: [
+                    {
+                      name: "Game",
+                      value: $game,
+                      inline: false
+                    },
+                    {
+                      name: "Title ID",
+                      value: ("`" + $tid + "`"),
+                      inline: false
+                    },
+                    {
+                      name: "Version",
+                      value: ("`v" + $old + " → v" + $new + "`"),
+                      inline: false
+                    }
+                  ] + (if $regions != "" then [{
+                    name: "Regions",
+                    value: $regions,
+                    inline: false
+                  }] else [] end)
+                }]
+              }')
+            
             curl -H "Content-Type: application/json" \
-                 -d "{\"content\": $escaped_message}" \
+                 -d "$embed_json" \
                  "$DISCORD_WEBHOOK_URL"
           fi

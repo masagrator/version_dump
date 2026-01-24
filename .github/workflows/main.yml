@@ -49,6 +49,14 @@ jobs:
             # Get game name from JSON (first element of array value)
             game_name=$(jq -r --arg key "$titleid" '.[$key][0] // "Unknown"' titledb.json)
             
+            # Get icon URL from titleid-specific JSON
+            icon_url=""
+            titleid_json_url="https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/titleid/${titleid}.json"
+            if curl -s -f "$titleid_json_url" -o "titleid_${titleid}.json" 2>/dev/null; then
+              icon_url=$(jq -r '.iconUrl // ""' "titleid_${titleid}.json")
+              rm -f "titleid_${titleid}.json"
+            fi
+            
             # Get regions and convert to flag emojis
             regions=$(jq -r --arg key "$titleid" '.[$key] // [] | .[]' titledb_regions.json)
             flags=""
@@ -88,6 +96,7 @@ jobs:
               echo "OLD_VERSION:$old_version" >> messages.txt
               echo "NEW_VERSION:$new_version" >> messages.txt
               echo "FLAGS:$flags" >> messages.txt
+              echo "ICON_URL:$icon_url" >> messages.txt
               echo "---" >> messages.txt
             fi
           done < new_lines.txt
@@ -108,6 +117,7 @@ jobs:
           old_version=""
           new_version=""
           flags=""
+          icon_url=""
           
           while IFS= read -r line; do
             if [ "$line" = "---" ]; then
@@ -115,7 +125,44 @@ jobs:
                 # Build base embed JSON
                 if [ ! -z "$flags" ]; then
                   # With regions
-                  cat > embed.json <<EOF
+                  if [ ! -z "$icon_url" ]; then
+                    # With icon
+                    cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "thumbnail": {
+                "url": "$icon_url"
+              },
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                },
+                {
+                  "name": "Regions",
+                  "value": "$flags",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+                  else
+                    # Without icon
+                    cat > embed.json <<EOF
           {
             "embeds": [{
               "title": "🎮 New Game Update Detected",
@@ -145,9 +192,42 @@ jobs:
             }]
           }
           EOF
+                  fi
                 else
                   # Without regions
-                  cat > embed.json <<EOF
+                  if [ ! -z "$icon_url" ]; then
+                    # With icon
+                    cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "thumbnail": {
+                "url": "$icon_url"
+              },
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+                  else
+                    # Without icon
+                    cat > embed.json <<EOF
           {
             "embeds": [{
               "title": "🎮 New Game Update Detected",
@@ -172,6 +252,7 @@ jobs:
             }]
           }
           EOF
+                  fi
                 fi
                 
                 # Send to Discord
@@ -185,6 +266,7 @@ jobs:
                 old_version=""
                 new_version=""
                 flags=""
+                icon_url=""
                 sleep 1
               fi
             else
@@ -205,6 +287,9 @@ jobs:
                 FLAGS:*)
                   flags="${line#FLAGS:}"
                   ;;
+                ICON_URL:*)
+                  icon_url="${line#ICON_URL:}"
+                  ;;
               esac
             fi
           done < messages.txt
@@ -212,7 +297,42 @@ jobs:
           # Send last message if exists
           if [ ! -z "$game_name" ]; then
             if [ ! -z "$flags" ]; then
-              cat > embed.json <<EOF
+              if [ ! -z "$icon_url" ]; then
+                cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "thumbnail": {
+                "url": "$icon_url"
+              },
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                },
+                {
+                  "name": "Regions",
+                  "value": "$flags",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+              else
+                cat > embed.json <<EOF
           {
             "embeds": [{
               "title": "🎮 New Game Update Detected",
@@ -242,8 +362,39 @@ jobs:
             }]
           }
           EOF
+              fi
             else
-              cat > embed.json <<EOF
+              if [ ! -z "$icon_url" ]; then
+                cat > embed.json <<EOF
+          {
+            "embeds": [{
+              "title": "🎮 New Game Update Detected",
+              "color": 3447003,
+              "thumbnail": {
+                "url": "$icon_url"
+              },
+              "fields": [
+                {
+                  "name": "Game",
+                  "value": $(echo "$game_name" | jq -Rs .),
+                  "inline": false
+                },
+                {
+                  "name": "Title ID",
+                  "value": "\`$titleid\`",
+                  "inline": false
+                },
+                {
+                  "name": "Version",
+                  "value": "\`v$old_version → v$new_version\`",
+                  "inline": false
+                }
+              ]
+            }]
+          }
+          EOF
+              else
+                cat > embed.json <<EOF
           {
             "embeds": [{
               "title": "🎮 New Game Update Detected",
@@ -268,6 +419,7 @@ jobs:
             }]
           }
           EOF
+              fi
             fi
             
             curl -H "Content-Type: application/json" \

@@ -52,10 +52,12 @@ jobs:
             # Get icon URL from titleid-specific JSON
             icon_url=""
             titleid_json_url="https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/titleid/${titleid}.json"
-            if curl -s -f "$titleid_json_url" -o "titleid_${titleid}.json" 2>/dev/null; then
-              icon_url=$(jq -r '.iconUrl // ""' "titleid_${titleid}.json")
-              rm -f "titleid_${titleid}.json"
+            titleid_json_file="titleid_${titleid}.json"
+            if curl -s -f "$titleid_json_url" -o "$titleid_json_file" 2>/dev/null; then
+              icon_url=$(jq -r '.iconUrl // ""' "$titleid_json_file" 2>/dev/null || echo "")
             fi
+            # Clean up regardless of success or failure
+            rm -f "$titleid_json_file"
             
             # Get regions and convert to flag emojis
             regions=$(jq -r --arg key "$titleid" '.[$key] // [] | .[]' titledb_regions.json)

@@ -62,6 +62,29 @@ jobs:
             # Get regions and convert to flag emojis
             regions=$(jq -r --arg key "$titleid" '.[$key] // [] | .[]' titledb_regions.json)
             flags=""
+            
+            # If no regions found in JSON, check Nintendo eShop
+            if [ -z "$regions" ]; then
+              echo "No regions in JSON, checking Nintendo eShop for $titleid"
+              valid_regions=""
+              region_list="BG CH CY EE HR IE LT LU LV MT RO SI SK AT BE CZ DK ES FI GR HU NL NO PL PT RU ZA SE IT FR DE GB BR CO AR CL PE MX CA US KR NZ AU JP MY SG TW TH"
+              
+              for region in $region_list; do
+                # Check if URL returns 303 (without following redirects)
+                status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "https://ec.nintendo.com/apps/$titleid/$region" 2>/dev/null || echo "000")
+                
+                if [ "$status_code" = "303" ]; then
+                  valid_regions="$valid_regions$region "
+                else
+                  # Wait 200ms before next request if not 303
+                  sleep 0.2
+                fi
+              done
+              
+              regions=$(echo "$valid_regions" | xargs)
+            fi
+            
+            # Convert regions to flags
             if [ ! -z "$regions" ]; then
               for region in $regions; do
                 # Convert ISO country code to flag emoji

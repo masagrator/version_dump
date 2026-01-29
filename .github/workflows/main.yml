@@ -286,6 +286,8 @@ jobs:
                 fi
                 
                 # Send to Discord
+                cat embed.json
+                echo "---"
                 curl -H "Content-Type: application/json" \
                      -d @embed.json \
                      "$DISCORD_WEBHOOK_URL"
@@ -458,4 +460,7 @@ jobs:
             curl -H "Content-Type: application/json" \
                  -d @embed.json \
                  "$DISCORD_WEBHOOK_URL"
+            
+            cat embed.json
+            echo "---"
           fi

@@ -85,7 +85,9 @@ jobs:
             fi
             
             # Convert regions to flags
+            first_flag_link=""
             if [ ! -z "$regions" ]; then
+              first_region_done=false
               for region in $regions; do
                 # Convert ISO country code to flag emoji
                 # Each letter becomes regional indicator symbol (A=🇦, B=🇧, etc.)
@@ -98,9 +100,19 @@ jobs:
                 second_code=$(($(printf '%d' "'$second_char") - 65 + 127462))
                 
                 flag=$(printf "\U$(printf '%x' $first_code)\U$(printf '%x' $second_code)")
-                # Make flag a hyperlink to Nintendo eShop
-                flag_link="[$flag](https://ec.nintendo.com/apps/$titleid/$region)"
-                flags="$flags$flag_link "
+                
+                # Add link only to first valid flag (skip KR, SG, MY, TH, TW)
+                if [ "$first_region_done" = false ]; then
+                  if [ "$region" != "KR" ] && [ "$region" != "SG" ] && [ "$region" != "MY" ] && [ "$region" != "TH" ] && [ "$region" != "TW" ]; then
+                    flag_link="[$flag](https://ec.nintendo.com/apps/$titleid/$region)"
+                    flags="$flags$flag_link "
+                    first_region_done=true
+                  else
+                    flags="$flags$flag "
+                  fi
+                else
+                  flags="$flags$flag "
+                fi
               done
               flags=$(echo "$flags" | xargs)  # Trim trailing space
             fi

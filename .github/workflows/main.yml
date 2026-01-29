@@ -98,7 +98,9 @@ jobs:
                 second_code=$(($(printf '%d' "'$second_char") - 65 + 127462))
                 
                 flag=$(printf "\U$(printf '%x' $first_code)\U$(printf '%x' $second_code)")
-                flags="$flags$flag "
+                # Make flag a hyperlink to Nintendo eShop
+                flag_link="[$flag](https://ec.nintendo.com/apps/$titleid/$region)"
+                flags="$flags$flag_link "
               done
               flags=$(echo "$flags" | xargs)  # Trim trailing space
             fi

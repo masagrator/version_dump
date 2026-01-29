@@ -149,6 +149,9 @@ jobs:
           while IFS= read -r line; do
             if [ "$line" = "---" ]; then
               if [ ! -z "$game_name" ]; then
+                # Escape game name for JSON
+                game_name_json=$(echo "$game_name" | jq -Rs .)
+                
                 # Build base embed JSON
                 if [ ! -z "$flags" ]; then
                   # With regions
@@ -165,7 +168,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -197,7 +200,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -235,7 +238,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -262,7 +265,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -323,6 +326,9 @@ jobs:
           
           # Send last message if exists
           if [ ! -z "$game_name" ]; then
+            # Escape game name for JSON
+            game_name_json=$(echo "$game_name" | jq -Rs .)
+            
             if [ ! -z "$flags" ]; then
               if [ ! -z "$icon_url" ]; then
                 cat > embed.json <<EOF
@@ -336,7 +342,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -367,7 +373,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -403,7 +409,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {
@@ -429,7 +435,7 @@ jobs:
               "fields": [
                 {
                   "name": "Game",
-                  "value": $(echo "$game_name" | jq -Rs .),
+                  "value": $game_name_json,
                   "inline": false
                 },
                 {

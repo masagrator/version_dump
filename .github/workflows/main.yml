@@ -67,7 +67,7 @@ jobs:
             if [ -z "$regions" ]; then
               echo "No regions in JSON, checking Nintendo eShop for $titleid"
               valid_regions=""
-              region_list="US GB JP AU CA ES NL IT FR DE BR KR HK BG CH CY EE HR IE LT LU LV MT RO SI SK AT BE CZ DK FI GR HU NO PL PT ZA SE CO AR CL PE MX NZ MY SG TW TH"
+              region_list="US GB JP AU CA ES NL IT FR DE BR KR HK BG CH CY EE HR IE IL LT LU LV MT RO SI SK AT BE CZ DK FI GR HU NO PL PT ZA SE CO AR CL PE MX NZ MY SG TW TH"
               
               for region in $region_list; do
                 # Check if URL returns 303 (without following redirects)

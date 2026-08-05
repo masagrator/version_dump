@@ -71,10 +71,9 @@ jobs:
               region_list="US GB JP AU CA ES NL IT FR DE BR KR HK BG CH CY EE HR IE IL LT LU LV MT RO SI SK AT BE CZ DK FI GR HU NO PL PT ZA SE CO AR CL PE MX NZ MY SG TW TH"
               
               for region in $region_list; do
-                # Check if URL returns 303 (without following redirects)
                 status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "https://ec.nintendo.com/apps/$titleid/$region" 2>/dev/null || echo "000")
                 
-                if [ "$status_code" = "303" ] || [ "$status_code" = "307" ]; then
+                if [ "$status_code" = "301" ] || [ "$status_code" = "303" ] || [ "$status_code" = "307" ] || [ "$status_code" = "308" ]; then
                   valid_regions="$valid_regions$region "
                 else
                   # Wait 200ms before next request if not 303

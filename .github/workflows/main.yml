@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'version_dump.txt'
-  workflow_dispatch:
 
 jobs:
   check-version-changes:

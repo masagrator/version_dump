@@ -1,478 +1,92 @@
-name: Version Monitor
-
-on:
-  push:
-    paths:
-      - 'version_dump.txt'
-  workflow_dispatch: 
-
-jobs:
-  check-version-changes:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-
-      - name: Download titledb JSON
-        run: |
-          curl -o titledb.json https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/main.json
-          curl -o titledb_regions.json https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/main_regions.json
-
-      - name: Detect and process changes
-        id: process_changes
-        run: |
-          git diff HEAD^ HEAD -- version_dump.txt > changes.txt
-          
-          if [ ! -s changes.txt ]; then
-            echo "No changes detected"
-            exit 0
-          fi
-          
-          # Extract added/modified lines (lines starting with +, but not +++)
-          grep "^+[^+]" changes.txt | sed 's/^+//' > new_lines.txt
-          
-          # Extract removed lines (lines starting with -, but not ---)
-          grep "^-[^-]" changes.txt | sed 's/^-//' > old_lines.txt
-          
-          # Create a file to store messages
-          > messages.txt
-          
-          while IFS='|' read -r col1 col2 col3; do
-            # Trim whitespace
-            col1=$(echo "$col1" | xargs)
-            col3=$(echo "$col3" | xargs)
-            
-            # Replace last 3 digits with 000
-            titleid="${col1:0:-3}000"
-            
-            # Get game name from JSON (first element of array value)
-            game_name=$(jq -r --arg key "$titleid" '.[$key][0] // "Unknown"' titledb.json)
-            
-            # Get icon URL from titleid-specific JSON
-            icon_url=""
-            titleid_json_url="https://raw.githubusercontent.com/masagrator/titledb_filtered/main/output/titleid/${titleid}.json"
-            titleid_json_file="titleid_${titleid}.json"
-            if curl -s -f "$titleid_json_url" -o "$titleid_json_file" 2>/dev/null; then
-              icon_url=$(jq -r '.iconUrl // ""' "$titleid_json_file" 2>/dev/null || echo "")
-            fi
-            # Clean up regardless of success or failure
-            rm -f "$titleid_json_file"
-            
-            # Get regions and convert to flag emojis
-            regions=$(jq -r --arg key "$titleid" '.[$key] // [] | .[]' titledb_regions.json)
-            flags=""
-            
-            # If no regions found in JSON, check Nintendo eShop
-            if [ -z "$regions" ]; then
-              echo "No regions in JSON, checking Nintendo eShop for $titleid"
-              valid_regions=""
-              region_list="US GB JP AU CA ES NL IT FR DE BR KR HK BG CH CY EE HR IE IL LT LU LV MT RO SI SK AT BE CZ DK FI GR HU NO PL PT ZA SE CO AR CL PE MX NZ MY SG TW TH"
-              
-              for region in $region_list; do
-                status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "https://ec.nintendo.com/apps/$titleid/$region" 2>/dev/null || echo "000")
-                
-                if [ "$status_code" = "301" ] || [ "$status_code" = "303" ] || [ "$status_code" = "307" ] || [ "$status_code" = "308" ]; then
-                  valid_regions="$valid_regions$region "
-                else
-                  # Wait 200ms before next request if not 303
-                  sleep 0.2
-                fi
-              done
-              
-              regions=$(echo "$valid_regions" | xargs)
-            fi
-            
-            # Convert regions to flags
-            first_flag_link=""
-            if [ ! -z "$regions" ]; then
-              first_region_done=false
-              for region in $regions; do
-                # Convert ISO country code to flag emoji
-                # Each letter becomes regional indicator symbol (A=🇦, B=🇧, etc.)
-                first_char=$(echo "${region:0:1}" | tr '[:lower:]' '[:upper:]')
-                second_char=$(echo "${region:1:1}" | tr '[:lower:]' '[:upper:]')
-                
-                # Convert to Unicode regional indicator symbols
-                # A=127462 (🇦), B=127463 (🇧), etc.
-                first_code=$(($(printf '%d' "'$first_char") - 65 + 127462))
-                second_code=$(($(printf '%d' "'$second_char") - 65 + 127462))
-                
-                flag=$(printf "\U$(printf '%x' $first_code)\U$(printf '%x' $second_code)")
-                
-                # Add link only to first valid flag (skip KR, SG, MY, TH, TW)
-                if [ "$first_region_done" = false ]; then
-                  if [ "$region" != "KR" ] && [ "$region" != "SG" ] && [ "$region" != "MY" ] && [ "$region" != "TH" ] && [ "$region" != "TW" ]; then
-                    flag_link="[$flag](https://ec.nintendo.com/apps/$titleid/$region)"
-                    flags="$flags$flag_link "
-                    first_region_done=true
-                  else
-                    flags="$flags$flag "
-                  fi
-                else
-                  flags="$flags$flag "
-                fi
-              done
-              flags=$(echo "$flags" | xargs)  # Trim trailing space
-            fi
-            
-            # Calculate old version (check if line existed before)
-            old_version=0
-            if grep -q "^$col1|" old_lines.txt 2>/dev/null; then
-              old_col3=$(grep "^$col1|" old_lines.txt | cut -d'|' -f3 | xargs)
-              old_version=$((old_col3 / 65536))
-            fi
-            
-            # Calculate new version
-            new_version=$((col3 / 65536))
-            
-            # Only process if there's an actual change
-            if [ "$old_version" -ne "$new_version" ] || [ "$old_version" -eq 0 ]; then
-              # Store data in a structured format for embed creation
-              echo "GAME_NAME:$game_name" >> messages.txt
-              echo "TITLEID:$titleid" >> messages.txt
-              echo "OLD_VERSION:$old_version" >> messages.txt
-              echo "NEW_VERSION:$new_version" >> messages.txt
-              echo "FLAGS:$flags" >> messages.txt
-              echo "ICON_URL:$icon_url" >> messages.txt
-              echo "---" >> messages.txt
-            fi
-          done < new_lines.txt
-          
-          if [ -s messages.txt ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Send Discord notifications
-        if: steps.process_changes.outputs.has_changes == 'true'
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          game_name=""
-          titleid=""
-          old_version=""
-          new_version=""
-          flags=""
-          icon_url=""
-          
-          while IFS= read -r line; do
-            if [ "$line" = "---" ]; then
-              if [ ! -z "$game_name" ]; then
-                # Escape game name for JSON (remove trailing newline)
-                game_name_json=$(echo -n "$game_name" | jq -Rs .)
-                
-                # Build base embed JSON
-                if [ ! -z "$flags" ]; then
-                  # With regions
-                  if [ ! -z "$icon_url" ]; then
-                    # With icon
-                    cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "thumbnail": {
-                "url": "$icon_url"
-              },
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                },
-                {
-                  "name": "Regions",
-                  "value": "$flags",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-                  else
-                    # Without icon
-                    cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                },
-                {
-                  "name": "Regions",
-                  "value": "$flags",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-                  fi
-                else
-                  # Without regions
-                  if [ ! -z "$icon_url" ]; then
-                    # With icon
-                    cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "thumbnail": {
-                "url": "$icon_url"
-              },
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-                  else
-                    # Without icon
-                    cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-                  fi
-                fi
-                
-                # Send to Discord
-                cat embed.json
-                echo "---"
-                curl -H "Content-Type: application/json" \
-                     -d @embed.json \
-                     "$DISCORD_WEBHOOK_URL"
-                
-                # Reset variables
-                game_name=""
-                titleid=""
-                old_version=""
-                new_version=""
-                flags=""
-                icon_url=""
-                sleep 1
-              fi
-            else
-              # Parse the structured data
-              case "$line" in
-                GAME_NAME:*)
-                  game_name="${line#GAME_NAME:}"
-                  ;;
-                TITLEID:*)
-                  titleid="${line#TITLEID:}"
-                  ;;
-                OLD_VERSION:*)
-                  old_version="${line#OLD_VERSION:}"
-                  ;;
-                NEW_VERSION:*)
-                  new_version="${line#NEW_VERSION:}"
-                  ;;
-                FLAGS:*)
-                  flags="${line#FLAGS:}"
-                  ;;
-                ICON_URL:*)
-                  icon_url="${line#ICON_URL:}"
-                  ;;
-              esac
-            fi
-          done < messages.txt
-          
-          # Send last message if exists
-          if [ ! -z "$game_name" ]; then
-            # Escape game name for JSON (remove trailing newline)
-            game_name_json=$(echo -n "$game_name" | jq -Rs .)
-            
-            if [ ! -z "$flags" ]; then
-              if [ ! -z "$icon_url" ]; then
-                cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "thumbnail": {
-                "url": "$icon_url"
-              },
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                },
-                {
-                  "name": "Regions",
-                  "value": "$flags",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-              else
-                cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                },
-                {
-                  "name": "Regions",
-                  "value": "$flags",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-              fi
-            else
-              if [ ! -z "$icon_url" ]; then
-                cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "thumbnail": {
-                "url": "$icon_url"
-              },
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-              else
-                cat > embed.json <<EOF
-          {
-            "embeds": [{
-              "title": "🎮 New Game Update Detected",
-              "color": 3447003,
-              "fields": [
-                {
-                  "name": "Game",
-                  "value": $game_name_json,
-                  "inline": false
-                },
-                {
-                  "name": "Title ID",
-                  "value": "\`$titleid\`",
-                  "inline": false
-                },
-                {
-                  "name": "Version",
-                  "value": "\`v$old_version → v$new_version\`",
-                  "inline": false
-                }
-              ]
-            }]
-          }
-          EOF
-              fi
-            fi
-            
-            curl -H "Content-Type: application/json" \
-                 -d @embed.json \
-                 "$DISCORD_WEBHOOK_URL"
-            
-            cat embed.json
-            echo "---"
-          fi
+diff --git a/.github/workflows/main.yml b/.github/workflows/main.yml
+index adadd74..0505d16 100644
+--- a/.github/workflows/main.yml
++++ b/.github/workflows/main.yml
+@@ -13,7 +13,7 @@ jobs:
+       - name: Checkout repository
+         uses: actions/checkout@v7
+         with:
+-          fetch-depth: 2
++          fetch-depth: 0
+ 
+       - name: Download titledb JSON
+         run: |
+@@ -23,23 +23,46 @@ jobs:
+       - name: Detect and process changes
+         id: process_changes
+         run: |
+-          git diff HEAD^ HEAD -- version_dump.txt > changes.txt
+-          
+-          if [ ! -s changes.txt ]; then
++          # Pick which two revisions of version_dump.txt to compare
++          if [ "${{ github.event_name }}" = "push" ] \
++             && [ -n "${{ github.event.before }}" ] \
++             && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] \
++             && git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
++            # Push: compare state before the push with state after it
++            new_rev="${{ github.sha }}"
++            old_rev="${{ github.event.before }}"
++          else
++            # workflow_dispatch (or fallback): use the last commit that changed version_dump.txt
++            new_rev=$(git log -n 1 --format=%H -- version_dump.txt)
++            old_rev="${new_rev}^"
++          fi
++          echo "Comparing version_dump.txt: $old_rev -> $new_rev"
++
++          git show "$old_rev:version_dump.txt" 2>/dev/null | tr -d '\r' > old_dump.txt || true
++          git show "$new_rev:version_dump.txt" | tr -d '\r' > new_dump.txt
++
++          # Compare by ID (first column) instead of by diff line, because the file
++          # ordering can change between commits. Output: id|rightsId|new_version|old_version
++          # (old_version = 0 if the ID did not exist before)
++          awk -F'|' '
++            NR==FNR { if (FNR > 1) old[$1] = $3; next }
++            FNR > 1 && $1 != "" {
++              o = (($1 in old) ? old[$1] : 0)
++              if (o != $3) print $1 "|" $2 "|" $3 "|" o
++            }
++          ' old_dump.txt new_dump.txt > changed_lines.txt
++
++          if [ ! -s changed_lines.txt ]; then
+             echo "No changes detected"
++            echo "has_changes=false" >> $GITHUB_OUTPUT
+             exit 0
+           fi
+-          
+-          # Extract added/modified lines (lines starting with +, but not +++)
+-          grep "^+[^+]" changes.txt | sed 's/^+//' > new_lines.txt
+-          
+-          # Extract removed lines (lines starting with -, but not ---)
+-          grep "^-[^-]" changes.txt | sed 's/^-//' > old_lines.txt
++          echo "Detected $(wc -l < changed_lines.txt) changed entries"
+           
+           # Create a file to store messages
+           > messages.txt
+           
+-          while IFS='|' read -r col1 col2 col3; do
++          while IFS='|' read -r col1 col2 col3 old_col3; do
+             # Trim whitespace
+             col1=$(echo "$col1" | xargs)
+             col3=$(echo "$col3" | xargs)
+@@ -118,11 +141,7 @@ jobs:
+             fi
+             
+             # Calculate old version (check if line existed before)
+-            old_version=0
+-            if grep -q "^$col1|" old_lines.txt 2>/dev/null; then
+-              old_col3=$(grep "^$col1|" old_lines.txt | cut -d'|' -f3 | xargs)
+-              old_version=$((old_col3 / 65536))
+-            fi
++            old_version=$(( ${old_col3:-0} / 65536 ))
+             
+             # Calculate new version
+             new_version=$((col3 / 65536))
+@@ -138,7 +157,7 @@ jobs:
+               echo "ICON_URL:$icon_url" >> messages.txt
+               echo "---" >> messages.txt
+             fi
+-          done < new_lines.txt
++          done < changed_lines.txt
+           
+           if [ -s messages.txt ]; then
+             echo "has_changes=true" >> $GITHUB_OUTPUT
